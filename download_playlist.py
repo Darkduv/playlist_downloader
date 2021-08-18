@@ -5,6 +5,19 @@ import argparse
 import youtube_dl
 
 
+def strip_whitespaces(string: str) -> str:
+    temp = string.split()
+    return " ".join(temp)
+
+def clean_filename(filename: str) -> str:
+    """Given a filename
+
+    Return a well formed string for the filename, changing '/' characters, 
+    or removing excessed whitespaces"""
+    filename = filename.replace("/", "|") # to avoid filepath problems
+    filename = filename.strip()
+    return strip_whitespaces(filename)
+
 def clean_title(video) -> str:
     """Given a video object
 
@@ -12,11 +25,21 @@ def clean_title(video) -> str:
     title = video["title"]
     if "(" in title and ")" in title:  # remove unnecessary elements, such as "(lyrics)"
         opening_parenthesis_index = title.index("(")
-        closing_parenthesis_index = title.index(")")
-        title = title[:opening_parenthesis_index] + title[closing_parenthesis_index+1:]
-    if " - " not in title:  # add uploader if no author in initial title
-        title = video["uploader"] + " - " + title
-    return title
+        try:
+            closing_parenthesis_index = title.index(")",opening_parenthesis_index)
+            title = title[:opening_parenthesis_index] + title[closing_parenthesis_index+1:]
+        except ValueError: # there is no ")" after the "("
+            pass
+
+    if " - " not in title:  # add an 'artist' if no author in initial title
+        if "artist" in video and len(video["artist"]) > 0:
+            title = video["artist"] + " - " + title
+        else:
+            # if it's youtube that automatically added the video then the "uploader"
+            # countains "[...] - Topic" so we try to use "channel" in order
+            # to avoid the unuseful " - Topic"
+            title = video["channel"] + " - " + title     
+    return clean_filename(title)
 
 
 def videos_id(playlist_link: str, ydl: youtube_dl.YoutubeDL, playlist_name=None, delete_files=True) -> (list, list, str):
@@ -30,7 +53,9 @@ def videos_id(playlist_link: str, ydl: youtube_dl.YoutubeDL, playlist_name=None,
 
     if 'entries' in result:
         if playlist_name is None:
-            playlist_name = result["playlist_name"]
+            playlist_name = result["title"]
+        playlist_name = clean_filename(playlist_name)
+        
         # Can be a playlist or a list of videos
         video = result['entries']
 
@@ -97,7 +122,7 @@ def download_playlist():
     youtube_downloader.download(video_ids_to_download)
 
     # merge all audio files
-    merge_audio_files(video_ids_to_download, playlist_name)
+    # merge_audio_files(video_ids_to_download, playlist_name)
 
     if delete_files:
         for video_id in video_ids_to_download:
@@ -105,7 +130,8 @@ def download_playlist():
     else:  # rename
         os.makedirs(playlist_name)
         for i, video_id in enumerate(video_ids_to_download):
-            os.system('mv {0}.mp3 "{1}/{2}.mp3"'.format(video_id, playlist_name, video_titles[i]))
+            path = f"""{playlist_name}/{video_titles[i]}""".replace('"',r'\"') 
+            os.system('mv {0}.mp3 "{1}.mp3"'.format(video_id, path))
 
 
 if __name__ == '__main__':
